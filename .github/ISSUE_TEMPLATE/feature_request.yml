@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest a new read-only network diagnostic
+labels: [enhancement]
+body:
+  - type: textarea
+    id: metric
+    attributes:
+      label: Diagnostic or metric
+      description: What should switch-wifi measure or display?
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Known Horizon/libnx source
+      description: If known, identify the service/API and whether the value is measured or derived.
+  - type: textarea
+    id: value
+    attributes:
+      label: Why is it useful?
