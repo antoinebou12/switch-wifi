@@ -30,7 +30,7 @@ jobs:
             echo "value=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
           fi
       - name: Checkout release ref
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.ref.outputs.value }}
       - name: Resolve and validate version
@@ -64,7 +64,7 @@ jobs:
       image: devkitpro/devkita64:latest
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           ref: ${{ needs.validate.outputs.tag }}
