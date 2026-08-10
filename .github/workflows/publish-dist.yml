@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: publish-dist-main
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build-and-publish:
@@ -55,6 +55,13 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "main advanced while this NRO was building; skipping stale artifact"
+            exit 0
+          fi
+
           git add -f dist/switch-wifi.nro dist/SHA256SUMS
           if git diff --cached --quiet; then
             echo "dist artifact is already current"
