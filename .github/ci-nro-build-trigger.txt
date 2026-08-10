@@ -1,0 +1,1 @@
+Temporary CI trigger used to build a verified Nintendo Switch NRO artifact for dist/.
