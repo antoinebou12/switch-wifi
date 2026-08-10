@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag to package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Resolve ref
+        id: ref
+        shell: bash
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Checkout release ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.value }}
+      - name: Resolve and validate version
+        id: version
+        shell: bash
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          python3 scripts/check_release_version.py "$TAG" CMakeLists.txt
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Configure host tests
+        run: >-
+          cmake -S . -B build-host
+          -DSWITCH_WIFI_BUILD_APP=OFF
+          -DSWITCH_WIFI_BUILD_TESTS=ON
+          -DSWITCH_WIFI_WARNINGS_AS_ERRORS=ON
+          -DCMAKE_BUILD_TYPE=Release
+      - name: Build and test
+        run: |
+          cmake --build build-host --parallel 2
+          ctest --test-dir build-host --output-on-failure
+
+  build-nro:
+    name: Build release NRO
+    needs: validate
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64:latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ needs.validate.outputs.tag }}
+      - name: Toolchain inventory
+        run: |
+          aarch64-none-elf-g++ --version | head -n 1 | tee TOOLCHAIN.txt
+          pkg-config --modversion libcurl | sed 's/^/libcurl=/' | tee -a TOOLCHAIN.txt
+      - name: Configure Switch build
+        run: >-
+          cmake -S . -B build-switch
+          -DPLATFORM_SWITCH=ON
+          -DUSE_GLFW=ON
+          -DCMAKE_BUILD_TYPE=Release
+      - name: Build and verify NRO
+        run: |
+          cmake --build build-switch --target switch-wifi.nro --parallel 2
+          python3 scripts/verify_nro.py build-switch/switch-wifi.nro
+      - name: Package release
+        run: |
+          python3 scripts/package_release.py "${{ needs.validate.outputs.tag }}" build-switch/switch-wifi.nro dist
+          cp TOOLCHAIN.txt dist/TOOLCHAIN.txt
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: switch-wifi-release-${{ needs.validate.outputs.tag }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub Release
+    needs: [validate, build-nro]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: switch-wifi-release-${{ needs.validate.outputs.tag }}
+          path: dist
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "switch-wifi $TAG" \
+            --generate-notes \
+            --verify-tag

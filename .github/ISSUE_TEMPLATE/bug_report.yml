@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a switch-wifi crash, build issue, or incorrect diagnostic
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: dropdown
+    id: model
+    attributes:
+      label: Switch model
+      options:
+        - Switch OLED (Aula)
+        - Switch V2 (Mariko)
+        - Switch V1 (Erista)
+        - Switch Lite
+        - Other / unknown
+    validations:
+      required: true
+  - type: input
+    id: hos
+    attributes:
+      label: Horizon / firmware version
+      placeholder: "e.g. 22.5.0"
+    validations:
+      required: true
+  - type: input
+    id: atmosphere
+    attributes:
+      label: Atmosphere version
+      placeholder: "e.g. 1.11.2"
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: switch-wifi version / NRO SHA-256
+      description: Prefer the value from the release/checksum or diagnostics report.
+  - type: dropdown
+    id: launch
+    attributes:
+      label: Launch mode
+      options:
+        - Full-memory title override
+        - hbmenu applet mode
+        - Other / unknown
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include the exact tab/action and expected result.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Diagnostics report
+      description: Paste the exported report after checking it for anything you do not want to share.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps

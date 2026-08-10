@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests:
+    name: Host tests (${{ matrix.compiler }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >-
+          cmake -S . -B build-host
+          -DSWITCH_WIFI_BUILD_APP=OFF
+          -DSWITCH_WIFI_BUILD_TESTS=ON
+          -DSWITCH_WIFI_WARNINGS_AS_ERRORS=ON
+          -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build-host --parallel 2
+      - name: Unit tests
+        run: ctest --test-dir build-host --output-on-failure
+
+  sanitizers:
+    name: ASan + UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure sanitizers
+        run: >-
+          cmake -S . -B build-sanitize
+          -DSWITCH_WIFI_BUILD_APP=OFF
+          -DSWITCH_WIFI_BUILD_TESTS=ON
+          -DSWITCH_WIFI_ENABLE_SANITIZERS=ON
+          -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build build-sanitize --parallel 2
+      - name: Unit tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build-sanitize --output-on-failure
+
+  switch-nro:
+    name: NRO (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: stable-image
+            image: devkitpro/devkita64:20260219
+          - name: latest-image
+            image: devkitpro/devkita64:latest
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Checkout with Borealis
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Toolchain inventory
+        run: |
+          aarch64-none-elf-g++ --version | head -n 1
+          pkg-config --modversion libcurl
+          echo "DEVKITPRO=${DEVKITPRO}"
+      - name: Configure Switch build
+        run: >-
+          cmake -S . -B build-switch
+          -DPLATFORM_SWITCH=ON
+          -DUSE_GLFW=ON
+          -DCMAKE_BUILD_TYPE=Release
+      - name: Build NRO
+        run: cmake --build build-switch --target switch-wifi.nro --parallel 2
+      - name: Verify NRO structure
+        run: python3 scripts/verify_nro.py build-switch/switch-wifi.nro
+      - name: Build checksum
+        run: sha256sum build-switch/switch-wifi.nro | tee build-switch/SHA256SUMS
+      - name: Upload NRO
+        uses: actions/upload-artifact@v4
+        with:
+          name: switch-wifi-nro-${{ matrix.name }}
+          path: |
+            build-switch/switch-wifi.nro
+            build-switch/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+  switch-nro-libnx-master:
+    name: NRO (current libnx master)
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64:latest
+    steps:
+      - name: Checkout with Borealis
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build current libnx master
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/switchbrew/libnx.git /tmp/libnx
+          git -C /tmp/libnx rev-parse HEAD | tee /tmp/libnx-commit.txt
+          make -C /tmp/libnx -j2
+          make -C /tmp/libnx install
+      - name: Configure Switch build
+        run: >-
+          cmake -S . -B build-switch-master
+          -DPLATFORM_SWITCH=ON
+          -DUSE_GLFW=ON
+          -DCMAKE_BUILD_TYPE=Release
+      - name: Build and verify NRO
+        run: |
+          cmake --build build-switch-master --target switch-wifi.nro --parallel 2
+          python3 scripts/verify_nro.py build-switch-master/switch-wifi.nro
+          sha256sum build-switch-master/switch-wifi.nro | tee build-switch-master/SHA256SUMS
+          cp /tmp/libnx-commit.txt build-switch-master/LIBNX_COMMIT
+      - name: Upload current-libnx NRO
+        uses: actions/upload-artifact@v4
+        with:
+          name: switch-wifi-nro-libnx-master
+          path: |
+            build-switch-master/switch-wifi.nro
+            build-switch-master/SHA256SUMS
+            build-switch-master/LIBNX_COMMIT
+          if-no-files-found: error
+          retention-days: 14

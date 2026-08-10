@@ -1,0 +1,15 @@
+build/
+.idea/
+.vscode/
+*.nro
+*.elf
+*.nacp
+*.o
+*.a
+compile_commands.json
+.DS_Store
+
+build*/
+
+__pycache__/
+*.pyc

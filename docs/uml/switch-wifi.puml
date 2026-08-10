@@ -1,0 +1,57 @@
+@startuml switch-wifi-components
+skinparam componentStyle rectangle
+actor User
+component "Borealis UI\nMainTabs" as UI
+component "SignalShaderView /\nSparklineView" as Graph
+component "NetworkService" as Net
+component "SpeedTestEngine" as Speed
+component "BluetoothService" as Bt
+component "Core models + metrics" as Core
+cloud "Horizon NIFM" as Nifm
+cloud "legacy wlan:inf\n(HOS < 15)" as Wlan
+cloud "Horizon BTM" as Btm
+component "libcurl / BSD sockets" as Curl
+cloud "HTTPS benchmark endpoint" as Endpoint
+
+User --> UI
+UI --> Graph
+UI --> Net
+UI --> Speed
+UI --> Bt
+Net --> Core
+Speed --> Core
+Bt --> Core
+Net --> Nifm
+Net ..> Wlan : legacy RSSI
+Bt --> Btm
+Speed --> Curl
+Curl --> Endpoint
+@enduml
+
+@startuml switch-wifi-benchmark
+actor User
+participant "Borealis UI" as UI
+participant "brls::async" as Async
+participant "SpeedTestEngine" as Speed
+participant libcurl as Curl
+participant "HTTPS endpoint" as Server
+
+User -> UI : Run benchmark
+UI -> Async : start worker
+Async -> Speed : run(config)
+loop latency probes
+  Speed -> Curl : GET bytes=0
+  Curl -> Server : HTTPS
+  Server --> Curl : response
+  Curl --> Speed : STARTTRANSFER_TIME
+  Speed --> UI : brls::sync(progress)
+end
+Speed -> Speed : min / average / median / P95 / jitter
+Speed -> Curl : download 25 MiB
+Curl -> Server : HTTPS GET
+Speed -> Curl : upload 10 MiB zero buffer
+Curl -> Server : HTTPS POST
+Speed --> Async : SpeedSample
+Async --> UI : brls::sync(result)
+UI --> User : metrics + graphs
+@enduml
