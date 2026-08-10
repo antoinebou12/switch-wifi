@@ -30,7 +30,7 @@ jobs:
             echo "value=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
           fi
       - name: Checkout release ref
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.ref.outputs.value }}
       - name: Resolve and validate version
@@ -64,7 +64,7 @@ jobs:
       image: devkitpro/devkita64:latest
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           ref: ${{ needs.validate.outputs.tag }}
@@ -87,7 +87,7 @@ jobs:
           python3 scripts/package_release.py "${{ needs.validate.outputs.tag }}" build-switch/switch-wifi.nro dist
           cp TOOLCHAIN.txt dist/TOOLCHAIN.txt
       - name: Upload release bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: switch-wifi-release-${{ needs.validate.outputs.tag }}
           path: dist/*
@@ -102,7 +102,7 @@ jobs:
       contents: write
     steps:
       - name: Download release bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: switch-wifi-release-${{ needs.validate.outputs.tag }}
           path: dist
