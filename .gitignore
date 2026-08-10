@@ -13,3 +13,8 @@ build*/
 
 __pycache__/
 *.pyc
+
+# Keep the published Switch build in-repo.
+!dist/
+!dist/*.nro
+!dist/SHA256SUMS
