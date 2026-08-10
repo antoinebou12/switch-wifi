@@ -1,0 +1,64 @@
+name: Publish dist NRO
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "dist/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-dist-main
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    name: Build and publish dist/switch-wifi.nro
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64:20260219
+
+    steps:
+      - name: Checkout with Borealis
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configure Switch build
+        run: >-
+          cmake -S . -B build-switch
+          -DPLATFORM_SWITCH=ON
+          -DUSE_GLFW=ON
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build NRO
+        run: cmake --build build-switch --target switch-wifi.nro --parallel 2
+
+      - name: Verify NRO
+        run: python3 scripts/verify_nro.py build-switch/switch-wifi.nro
+
+      - name: Stage dist artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp build-switch/switch-wifi.nro dist/switch-wifi.nro
+          sha256sum dist/switch-wifi.nro > dist/SHA256SUMS
+
+      - name: Commit dist artifact to main
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f dist/switch-wifi.nro dist/SHA256SUMS
+          if git diff --cached --quiet; then
+            echo "dist artifact is already current"
+            exit 0
+          fi
+          git commit -m "chore: publish NRO to dist [skip ci]"
+          git push origin HEAD:main
