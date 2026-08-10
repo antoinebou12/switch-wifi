@@ -63,9 +63,19 @@ if (SWITCH_WIFI_BUILD_TESTS)
 endif()
 
 if (SWITCH_WIFI_BUILD_APP)
+    # libnx does not expose the POSIX file APIs used by fmt's optional os.cc.
+    # Borealis only needs fmt's core formatting support on Nintendo Switch.
+    set(FMT_OS OFF CACHE BOOL "Disable unsupported fmt OS APIs for libnx" FORCE)
+
     set(PACKAGE_NAME "ca.antoine.switchwifi")
     set(PROJECT_AUTHOR "Antoine Boucher")
     set(PROJECT_ICON ${CMAKE_CURRENT_SOURCE_DIR}/assets/icon.jpg)
+    set(BOREALIS_RESOURCES ${CMAKE_CURRENT_SOURCE_DIR}/library/borealis/resources)
+    set(PROJECT_RESOURCES ${CMAKE_CURRENT_BINARY_DIR}/romfs)
+    file(GLOB_RECURSE PROJECT_RESOURCE_FILES CONFIGURE_DEPENDS "${BOREALIS_RESOURCES}/*")
+    file(COPY "${BOREALIS_RESOURCES}/" DESTINATION "${PROJECT_RESOURCES}")
+    file(MAKE_DIRECTORY "${PROJECT_RESOURCES}/img")
+    configure_file("${PROJECT_ICON}" "${PROJECT_RESOURCES}/img/switch_wifi.jpg" COPYONLY)
 
     add_subdirectory(library)
 
@@ -101,8 +111,8 @@ if (SWITCH_WIFI_BUILD_APP)
         OUTPUT ${NRO_OUTPUT}
         COMMAND ${NX_NACPTOOL_EXE} --create "switch-wifi" "${PROJECT_AUTHOR}" "${PROJECT_VERSION}" ${NACP_OUTPUT}
         COMMAND ${NX_ELF2NRO_EXE} ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf ${NRO_OUTPUT}
-                --icon=${PROJECT_ICON} --nacp=${NACP_OUTPUT}
-        DEPENDS ${PROJECT_NAME} ${PROJECT_ICON}
+                --icon=${PROJECT_ICON} --nacp=${NACP_OUTPUT} --romfsdir=${PROJECT_RESOURCES}
+        DEPENDS ${PROJECT_NAME} ${PROJECT_ICON} ${PROJECT_RESOURCE_FILES}
         COMMENT "Packaging ${PROJECT_NAME}.nro"
         VERBATIM)
     add_custom_target(${PROJECT_NAME}.nro DEPENDS ${NRO_OUTPUT})

@@ -5,8 +5,7 @@
 namespace swifi {
 
 SparklineView::SparklineView() {
-    setHeight(166);
-    setGrow(1.0f);
+    setHeight(154);
 }
 
 void SparklineView::setSamples(std::vector<float> samples) {
@@ -17,7 +16,8 @@ void SparklineView::setSamples(std::vector<float> samples) {
 
 void SparklineView::draw(NVGcontext* vg, float x, float y, float width, float height,
                          brls::Style style, brls::FrameContext* ctx) {
-    View::draw(vg, x, y, width, height, style, ctx);
+    (void)style;
+    (void)ctx;
 
     std::vector<float> samples;
     {

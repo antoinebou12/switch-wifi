@@ -69,9 +69,11 @@ jobs:
           submodules: recursive
           ref: ${{ needs.validate.outputs.tag }}
       - name: Toolchain inventory
+        shell: bash
         run: |
+          source "${DEVKITPRO}/switchvars.sh"
           aarch64-none-elf-g++ --version | head -n 1 | tee TOOLCHAIN.txt
-          pkg-config --modversion libcurl | sed 's/^/libcurl=/' | tee -a TOOLCHAIN.txt
+          aarch64-none-elf-pkg-config --modversion libcurl | sed 's/^/libcurl=/' | tee -a TOOLCHAIN.txt
       - name: Configure Switch build
         run: >-
           cmake -S . -B build-switch

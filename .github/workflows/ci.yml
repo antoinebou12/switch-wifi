@@ -84,9 +84,11 @@ jobs:
         with:
           submodules: recursive
       - name: Toolchain inventory
+        shell: bash
         run: |
+          source "${DEVKITPRO}/switchvars.sh"
           aarch64-none-elf-g++ --version | head -n 1
-          pkg-config --modversion libcurl
+          aarch64-none-elf-pkg-config --modversion libcurl
           echo "DEVKITPRO=${DEVKITPRO}"
       - name: Configure Switch build
         run: >-
@@ -101,6 +103,7 @@ jobs:
       - name: Build checksum
         run: sha256sum build-switch/switch-wifi.nro | tee build-switch/SHA256SUMS
       - name: Upload NRO
+        if: ${{ env.ACT != 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: switch-wifi-nro-${{ matrix.name }}
@@ -139,6 +142,7 @@ jobs:
           sha256sum build-switch-master/switch-wifi.nro | tee build-switch-master/SHA256SUMS
           cp /tmp/libnx-commit.txt build-switch-master/LIBNX_COMMIT
       - name: Upload current-libnx NRO
+        if: ${{ env.ACT != 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: switch-wifi-nro-libnx-master

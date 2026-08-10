@@ -6,7 +6,6 @@ namespace swifi {
 
 SignalShaderView::SignalShaderView() {
     setHeight(118);
-    setGrow(1.0f);
 }
 
 void SignalShaderView::setSignal(float normalizedStrength, bool connected) {
@@ -20,7 +19,8 @@ void SignalShaderView::setSignal(float normalizedStrength, bool connected) {
 
 void SignalShaderView::draw(NVGcontext* vg, float x, float y, float width, float height,
                             brls::Style style, brls::FrameContext* ctx) {
-    View::draw(vg, x, y, width, height, style, ctx);
+    (void)style;
+    (void)ctx;
 
     float strength = 0.0f;
     bool connected = false;

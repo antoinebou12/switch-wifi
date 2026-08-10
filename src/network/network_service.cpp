@@ -2,7 +2,6 @@
 
 #ifdef __SWITCH__
 #include <switch.h>
-#include <arpa/inet.h>
 #endif
 
 #include <algorithm>
@@ -14,11 +13,10 @@ namespace {
 
 #ifdef __SWITCH__
 std::string ipv4ToString(u32 raw) {
-    char buffer[INET_ADDRSTRLEN]{};
-    in_addr addr{};
-    addr.s_addr = raw;
-    if (!inet_ntop(AF_INET, &addr, buffer, sizeof(buffer))) return "-";
-    return buffer;
+    return std::to_string(raw & 0xff) + "." +
+        std::to_string((raw >> 8) & 0xff) + "." +
+        std::to_string((raw >> 16) & 0xff) + "." +
+        std::to_string((raw >> 24) & 0xff);
 }
 
 struct NifmBasicProfileWire {
@@ -72,8 +70,14 @@ Result enumerateUserProfiles(std::array<NifmBasicProfileWire, 32>& profiles, s32
 bool NetworkService::initialize() {
 #ifdef __SWITCH__
     if (initialized_) return true;
-    const Result rc = nifmInitialize(NifmServiceType_User);
-    initialized_ = R_SUCCEEDED(rc);
+    if (serviceIsActive(nifmGetServiceSession_GeneralService())) {
+        initialized_ = true;
+        ownsNifmSession_ = false;
+    } else {
+        const Result rc = nifmInitialize(NifmServiceType_User);
+        initialized_ = R_SUCCEEDED(rc);
+        ownsNifmSession_ = initialized_;
+    }
     if (initialized_ && hosversionBefore(15, 0, 0)) wlanInfInitialized_ = R_SUCCEEDED(wlaninfInitialize());
     return initialized_;
 #else
@@ -85,7 +89,9 @@ bool NetworkService::initialize() {
 void NetworkService::shutdown() {
 #ifdef __SWITCH__
     if (wlanInfInitialized_) { wlaninfExit(); wlanInfInitialized_ = false; }
-    if (initialized_) { nifmExit(); initialized_ = false; }
+    if (initialized_ && ownsNifmSession_) nifmExit();
+    initialized_ = false;
+    ownsNifmSession_ = false;
 #else
     initialized_ = false;
 #endif
@@ -143,7 +149,8 @@ std::vector<SavedNetwork> NetworkService::savedNetworks() {
     result.reserve(count);
     for (int i = 0; i < count; ++i) {
         const auto& p = profiles[i];
-        const std::size_t nameLen = strnlen(p.networkName, sizeof(p.networkName));
+        const auto nameEnd = std::find(p.networkName, p.networkName + sizeof(p.networkName), '\0');
+        const std::size_t nameLen = static_cast<std::size_t>(nameEnd - p.networkName);
         const std::size_t ssidLen = std::min<std::size_t>(p.ssidLen, sizeof(p.ssid));
         SavedNetwork net; net.name.assign(p.networkName, p.networkName + nameLen); net.ssid.assign(p.ssid, p.ssid + ssidLen);
         net.authentication = authName(p.authentication); net.encryption = encryptionName(p.encryption); result.push_back(std::move(net));

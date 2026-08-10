@@ -18,6 +18,7 @@ class NetworkService {
 
   private:
     bool initialized_{false};
+    bool ownsNifmSession_{false};
     bool wlanInfInitialized_{false};
 };
 

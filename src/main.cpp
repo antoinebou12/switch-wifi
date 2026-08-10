@@ -25,7 +25,10 @@ int main() {
 
     brls::Application::createWindow("switch-wifi");
     brls::Application::setGlobalQuit(false);
-    brls::Application::pushActivity(new brls::Activity(new swifi::MainTabs()));
+    auto* frame = new brls::AppletFrame(new swifi::MainTabs());
+    frame->setTitle("switch-wifi");
+    frame->setIcon("romfs:/img/switch_wifi.jpg");
+    brls::Application::pushActivity(new brls::Activity(frame));
 
     while (brls::Application::mainLoop()) {}
 

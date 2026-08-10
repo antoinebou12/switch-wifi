@@ -9,6 +9,10 @@
 
 #include <borealis/core/thread.hpp>
 
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
+
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
@@ -18,37 +22,102 @@
 namespace swifi {
 namespace {
 
+constexpr float kSectionGap = 30.0f;
+
 std::string fmt(double value, const char* suffix, int precision = 1) {
     std::ostringstream ss;
     ss << std::fixed << std::setprecision(precision) << value << suffix;
     return ss.str();
 }
 
-brls::DetailCell* cell(brls::Box* box, const std::string& name) {
-    auto* c = new brls::DetailCell();
-    c->setText(name);
-    c->setDetailText("-");
-    box->addView(c);
-    return c;
+class ScrollableTab : public brls::Box {
+  public:
+    ScrollableTab() : brls::Box(brls::Axis::ROW) {
+        setAlignItems(brls::AlignItems::STRETCH);
+
+        scroll_ = new brls::ScrollingFrame();
+        scroll_->setGrow(1.0f);
+        scroll_->setAlignItems(brls::AlignItems::STRETCH);
+
+        content_ = new brls::Box(brls::Axis::COLUMN);
+        content_->setAlignItems(brls::AlignItems::STRETCH);
+        content_->setPadding(24.0f, 34.0f, 44.0f, 34.0f);
+        scroll_->setContentView(content_);
+        addView(scroll_);
+    }
+
+  protected:
+    brls::Box* content() const { return content_; }
+
+  private:
+    brls::ScrollingFrame* scroll_{};
+    brls::Box* content_{};
+};
+
+brls::Header* section(brls::Box* box, const std::string& name,
+                      const std::string& detail = {}, bool first = false) {
+    auto* header = new brls::Header();
+    header->setTitle(name);
+    if (!detail.empty()) header->setSubtitle(detail);
+    if (!first) header->setMarginTop(kSectionGap);
+    box->addView(header);
+    return header;
 }
 
-brls::Label* title(brls::Box* box, const std::string& text) {
-    auto* l = new brls::Label();
-    l->setText(text);
-    l->setFontSize(28.0f);
-    l->setMarginTop(18.0f);
-    l->setMarginBottom(8.0f);
-    box->addView(l);
-    return l;
+brls::Label* paragraph(brls::Box* box, const std::string& text, float bottom = 14.0f) {
+    auto* label = new brls::Label();
+    label->setText(text);
+    label->setFontSize(16.0f);
+    label->setLineHeight(1.25f);
+    label->setWidthPercentage(100.0f);
+    label->setMarginTop(10.0f);
+    label->setMarginBottom(bottom);
+    box->addView(label);
+    return label;
 }
 
-brls::Label* subtitle(brls::Box* box, const std::string& text) {
-    auto* l = new brls::Label();
-    l->setText(text);
-    l->setFontSize(17.0f);
-    l->setMarginBottom(10.0f);
-    box->addView(l);
-    return l;
+brls::Label* statusCard(brls::Box* box, const std::string& heading, const std::string& text) {
+    auto* card = new brls::Box(brls::Axis::COLUMN);
+    card->setAlignItems(brls::AlignItems::STRETCH);
+    card->setWidthPercentage(100.0f);
+    card->setPadding(14.0f, 18.0f, 14.0f, 18.0f);
+    card->setMarginTop(12.0f);
+    card->setMarginBottom(8.0f);
+    card->setBackgroundColor(brls::Application::getTheme()["brls/sidebar/background"]);
+    card->setCornerRadius(10.0f);
+
+    auto* title = new brls::Label();
+    title->setText(heading);
+    title->setFontSize(18.0f);
+    title->setWidthPercentage(100.0f);
+    title->setMarginBottom(5.0f);
+    card->addView(title);
+
+    auto* body = new brls::Label();
+    body->setText(text);
+    body->setFontSize(15.0f);
+    body->setLineHeight(1.25f);
+    body->setWidthPercentage(100.0f);
+    card->addView(body);
+
+    box->addView(card);
+    return body;
+}
+
+brls::DetailCell* cell(brls::Box* box, const std::string& name,
+                       const std::string& value = "-") {
+    auto* result = new brls::DetailCell();
+    result->setText(name);
+    result->setDetailText(value);
+    box->addView(result);
+    return result;
+}
+
+brls::DetailCell* action(brls::Box* box, const std::string& name,
+                         const brls::ActionListener& listener) {
+    auto* result = cell(box, name, "Press A");
+    result->registerClickAction(listener);
+    return result;
 }
 
 float signalNormalized(const ConnectionSnapshot& snapshot) {
@@ -57,64 +126,67 @@ float signalNormalized(const ConnectionSnapshot& snapshot) {
     return 0.0f;
 }
 
-class DashboardTab : public brls::Box {
+class DashboardTab : public ScrollableTab {
   public:
     DashboardTab() : signalHistory_(120) {
-        setPadding(20, 28, 20, 28);
-        title(this, "Wi-Fi dashboard");
-        subtitle(this, "Live connection state with a GPU-backed signal visualization and rolling history.");
+        auto* page = content();
+        section(page, "Connection", "LIVE", true);
+        paragraph(page, "Current network details from Horizon OS. Values refresh when this tab opens.");
 
         shader_ = new SignalShaderView();
-        addView(shader_);
+        shader_->setMarginBottom(12.0f);
+        page->addView(shader_);
 
-        type_ = cell(this, "Link");
-        ssid_ = cell(this, "SSID");
-        signal_ = cell(this, "Signal");
-        ip_ = cell(this, "IPv4");
-        gateway_ = cell(this, "Gateway");
-        dns_ = cell(this, "DNS");
-        mtu_ = cell(this, "MTU");
-        diagnostic_ = cell(this, "Diagnostic");
+        type_ = cell(page, "Link type");
+        ssid_ = cell(page, "Network");
+        signal_ = cell(page, "Signal");
+        ip_ = cell(page, "IPv4 address");
+        gateway_ = cell(page, "Router");
+        dns_ = cell(page, "DNS servers");
+        mtu_ = cell(page, "MTU");
+        diagnostic_ = statusCard(page, "Connection note", "Waiting for a network sample...");
 
-        title(this, "Signal history");
-        subtitle(this, "RSSI where verified; otherwise Horizon's 0-3 signal bars.");
-        graph_ = new SparklineView();
-        addView(graph_);
-
-        auto* refresh = cell(this, "Refresh sample");
-        refresh->setDetailText("Press A");
-        refresh->registerClickAction([this](brls::View*) {
+        action(page, "Refresh connection", [this](brls::View*) {
             refreshNow();
             return true;
         });
+
+        section(page, "Signal history", "RECENT SAMPLES");
+        paragraph(page, "Uses verified RSSI when available; otherwise it shows the Switch signal-bar reading.");
+        graph_ = new SparklineView();
+        page->addView(graph_);
+
         refreshNow();
     }
 
     ~DashboardTab() override { service_.shutdown(); }
 
     void willAppear(bool resetState) override {
-        Box::willAppear(resetState);
+        ScrollableTab::willAppear(resetState);
         refreshNow();
     }
 
   private:
     void refreshNow() {
         service_.initialize();
-        const auto s = service_.snapshot();
-        type_->setDetailText(toString(s.linkType));
-        ssid_->setDetailText(s.ssid.empty() ? "(hidden/unknown)" : s.ssid);
-        signal_->setDetailText(s.hasRssi
-            ? std::to_string(s.rssiDbm) + " dBm (" + toString(classifyRssi(s.rssiDbm)) + ")"
-            : (s.wifiBars >= 0 ? std::to_string(s.wifiBars) + "/3 bars (" + toString(classifyBars(s.wifiBars)) + ")" : "Unavailable"));
-        ip_->setDetailText(s.ip.address);
-        gateway_->setDetailText(s.ip.gateway);
-        dns_->setDetailText(s.ip.primaryDns + " / " + s.ip.secondaryDns);
-        mtu_->setDetailText(s.ip.mtu ? std::to_string(s.ip.mtu) : "-");
-        diagnostic_->setDetailText(s.diagnostic);
+        const auto snapshot = service_.snapshot();
+        type_->setDetailText(toString(snapshot.linkType));
+        ssid_->setDetailText(snapshot.ssid.empty() ? "Hidden or unknown" : snapshot.ssid);
+        signal_->setDetailText(snapshot.hasRssi
+            ? std::to_string(snapshot.rssiDbm) + " dBm - " + toString(classifyRssi(snapshot.rssiDbm))
+            : (snapshot.wifiBars >= 0
+                ? std::to_string(snapshot.wifiBars) + " / 3 bars - " + toString(classifyBars(snapshot.wifiBars))
+                : "Unavailable"));
+        ip_->setDetailText(snapshot.ip.address);
+        gateway_->setDetailText(snapshot.ip.gateway);
+        dns_->setDetailText(snapshot.ip.primaryDns + "  /  " + snapshot.ip.secondaryDns);
+        mtu_->setDetailText(snapshot.ip.mtu ? std::to_string(snapshot.ip.mtu) : "Unavailable");
+        diagnostic_->setText(snapshot.diagnostic.empty() ? "No additional diagnostic details." : snapshot.diagnostic);
 
-        shader_->setSignal(signalNormalized(s), s.linkType == LinkType::WiFi && s.internetConnected);
-        const float sample = s.hasRssi ? static_cast<float>(s.rssiDbm)
-                                       : static_cast<float>(std::max(0, s.wifiBars));
+        shader_->setSignal(signalNormalized(snapshot),
+                           snapshot.linkType == LinkType::WiFi && snapshot.internetConnected);
+        const float sample = snapshot.hasRssi ? static_cast<float>(snapshot.rssiDbm)
+                                              : static_cast<float>(std::max(0, snapshot.wifiBars));
         signalHistory_.push(sample);
         graph_->setSamples(signalHistory_.values());
     }
@@ -123,45 +195,36 @@ class DashboardTab : public brls::Box {
     RingHistory<float> signalHistory_;
     SignalShaderView* shader_{};
     SparklineView* graph_{};
-    brls::DetailCell *type_{}, *ssid_{}, *signal_{}, *ip_{}, *gateway_{}, *dns_{}, *mtu_{}, *diagnostic_{};
+    brls::Label* diagnostic_{};
+    brls::DetailCell *type_{}, *ssid_{}, *signal_{}, *ip_{}, *gateway_{}, *dns_{}, *mtu_{};
 };
 
-class NetworksTab : public brls::Box {
+class NetworksTab : public ScrollableTab {
   public:
     NetworksTab() {
-        setPadding(20, 28, 20, 28);
-        title(this, "Wi-Fi environment");
-        subtitle(this, "Verified Horizon diagnostics are separated from experimental scan decoding.");
+        auto* page = content();
+        section(page, "Wi-Fi environment", "READ ONLY", true);
+        paragraph(page, "Useful radio and saved-profile information exposed by the verified user-level Switch APIs.");
+        statusCard(page, "Scan availability",
+                   "Nearby access-point decoding and RF noise-floor values are hidden until they can be verified on hardware. The app never invents signal data.");
 
-        auto* note = cell(this, "Nearby active scan");
-        note->setDetailText("Experimental: AP field decoding requires hardware fixtures");
-        auto* noise = cell(this, "RF noise floor / SNR");
-        noise->setDetailText("Unavailable through the verified user-level APIs used here");
-        auto* proxy = cell(this, "Channel contention proxy");
-        proxy->setDetailText("Core model ready; activates after verified AP channel/RSSI parsing");
+        section(page, "Channel reference");
+        allowedChannels_ = statusCard(page, "Allowed channels", "Loading the channel list...");
+        cell(page, "2.4 GHz channel 1", std::to_string(wifiChannelFrequencyMhz(1)) + " MHz");
+        cell(page, "2.4 GHz channel 6", std::to_string(wifiChannelFrequencyMhz(6)) + " MHz");
+        cell(page, "2.4 GHz channel 11", std::to_string(wifiChannelFrequencyMhz(11)) + " MHz");
+        cell(page, "5 GHz channel 36", std::to_string(wifiChannelFrequencyMhz(36)) + " MHz");
 
-        title(this, "Channel reference");
-        allowedChannels_ = cell(this, "Allowed channels");
-        auto* ch1 = cell(this, "2.4 GHz channel 1");
-        ch1->setDetailText(std::to_string(wifiChannelFrequencyMhz(1)) + " MHz");
-        auto* ch6 = cell(this, "2.4 GHz channel 6");
-        ch6->setDetailText(std::to_string(wifiChannelFrequencyMhz(6)) + " MHz");
-        auto* ch11 = cell(this, "2.4 GHz channel 11");
-        ch11->setDetailText(std::to_string(wifiChannelFrequencyMhz(11)) + " MHz");
-        auto* ch36 = cell(this, "5 GHz channel 36");
-        ch36->setDetailText(std::to_string(wifiChannelFrequencyMhz(36)) + " MHz");
-
-        title(this, "Saved profiles");
-        subtitle(this, "Basic metadata only; switch-wifi intentionally never fetches saved passphrases.");
-        savedBox_ = new brls::Box();
-        addView(savedBox_);
-
-        auto* refresh = cell(this, "Refresh profiles");
-        refresh->setDetailText("Press A");
-        refresh->registerClickAction([this](brls::View*) {
+        section(page, "Saved profiles", "NO PASSWORDS");
+        paragraph(page, "Only profile names and security types are displayed. Saved Wi-Fi passwords are never requested.");
+        action(page, "Refresh profiles", [this](brls::View*) {
             reloadSavedNetworks();
             return true;
         });
+
+        savedBox_ = new brls::Box(brls::Axis::COLUMN);
+        savedBox_->setAlignItems(brls::AlignItems::STRETCH);
+        page->addView(savedBox_);
         reloadSavedNetworks();
     }
 
@@ -172,79 +235,73 @@ class NetworksTab : public brls::Box {
         service_.initialize();
         const auto channels = service_.allowedWifiChannels();
         if (channels.empty()) {
-            allowedChannels_->setDetailText("Unavailable");
+            allowedChannels_->setText("The system did not expose an allowed-channel list in this launch context.");
         } else {
             std::ostringstream text;
             for (std::size_t i = 0; i < channels.size(); ++i) {
                 if (i) text << ", ";
                 text << channels[i];
             }
-            allowedChannels_->setDetailText(text.str());
+            allowedChannels_->setText(text.str());
         }
 
         savedBox_->clearViews();
         const auto networks = service_.savedNetworks();
         if (networks.empty()) {
-            auto* empty = cell(savedBox_, "No profiles available");
-            empty->setDetailText("Launch context or firmware may restrict profile access");
+            paragraph(savedBox_, "No saved profiles are available. Applet launch mode or firmware permissions may restrict access.", 0.0f);
             return;
         }
 
-        for (const auto& n : networks) {
-            auto* c = cell(savedBox_, n.ssid.empty() ? n.name : n.ssid);
-            c->setDetailText(n.authentication + " / " + n.encryption);
+        for (const auto& network : networks) {
+            auto* entry = cell(savedBox_, network.ssid.empty() ? network.name : network.ssid);
+            entry->setDetailText(network.authentication + " / " + network.encryption);
         }
     }
 
     NetworkService service_;
     brls::Box* savedBox_{};
-    brls::DetailCell* allowedChannels_{};
+    brls::Label* allowedChannels_{};
 };
 
-class BenchmarkTab : public brls::Box {
+class BenchmarkTab : public ScrollableTab {
   public:
     BenchmarkTab() : dlHistory_(40), ulHistory_(40), latencyHistory_(40) {
-        setPadding(20, 28, 20, 28);
-        title(this, "Wi-Fi benchmark");
-        subtitle(this, "End-to-end HTTPS benchmark: repeated request latency, jitter, download and upload.");
+        auto* page = content();
+        section(page, "Internet benchmark", "HTTPS", true);
+        paragraph(page, "Measures latency, jitter, download, and upload through a real encrypted connection.");
 
-        stage_ = cell(this, "State");
-        latency_ = cell(this, "Median latency");
-        minimumLatency_ = cell(this, "Minimum latency");
-        averageLatency_ = cell(this, "Average latency");
-        p95Latency_ = cell(this, "P95 latency");
-        jitter_ = cell(this, "Jitter");
-        probes_ = cell(this, "Latency probes");
-        download_ = cell(this, "Download");
-        upload_ = cell(this, "Upload");
-        endpoint_ = cell(this, "Endpoint");
-        endpoint_->setDetailText("speed.cloudflare.com");
-
-        auto* run = cell(this, "Run benchmark");
-        run->setDetailText("Press A");
-        run->registerClickAction([this](brls::View*) {
+        stage_ = statusCard(page, "Benchmark status", "Ready to run.");
+        action(page, "Run benchmark", [this](brls::View*) {
             startTest();
             return true;
         });
-
-        auto* cancel = cell(this, "Cancel benchmark");
-        cancel->setDetailText("Press A");
-        cancel->registerClickAction([this](brls::View*) {
+        action(page, "Cancel benchmark", [this](brls::View*) {
             engine_.cancel();
             return true;
         });
 
-        title(this, "Download history (Mbps)");
+        section(page, "Results", "LATEST RUN");
+        endpoint_ = cell(page, "Endpoint", "speed.cloudflare.com");
+        latency_ = cell(page, "Median latency");
+        minimumLatency_ = cell(page, "Minimum latency");
+        averageLatency_ = cell(page, "Average latency");
+        p95Latency_ = cell(page, "P95 latency");
+        jitter_ = cell(page, "Jitter");
+        probes_ = cell(page, "Latency probes");
+        download_ = cell(page, "Download speed");
+        upload_ = cell(page, "Upload speed");
+
+        section(page, "Download history", "Mbps");
         downloadGraph_ = new SparklineView();
-        addView(downloadGraph_);
+        page->addView(downloadGraph_);
 
-        title(this, "Upload history (Mbps)");
+        section(page, "Upload history", "Mbps");
         uploadGraph_ = new SparklineView();
-        addView(uploadGraph_);
+        page->addView(uploadGraph_);
 
-        title(this, "Median latency history (ms)");
+        section(page, "Latency history", "ms");
         latencyGraph_ = new SparklineView();
-        addView(latencyGraph_);
+        page->addView(latencyGraph_);
     }
 
     ~BenchmarkTab() override { engine_.cancel(); }
@@ -263,22 +320,22 @@ class BenchmarkTab : public brls::Box {
 
     void startTest() {
         if (engine_.isRunning()) return;
-        stage_->setDetailText("Starting...");
+        stage_->setText("Starting benchmark...");
         ptrLock();
         brls::async([this] {
             try {
-                const auto result = engine_.run([this](const SpeedTestProgress& p) {
-                    brls::sync([this, p] {
-                        stage_->setDetailText(p.message);
-                        updateResult(p.result);
+                const auto result = engine_.run([this](const SpeedTestProgress& progress) {
+                    brls::sync([this, progress] {
+                        stage_->setText(progress.message);
+                        updateResult(progress.result);
                     });
                 });
                 brls::sync([this, result] {
                     updateResult(result);
                     if (result.cancelled) {
-                        stage_->setDetailText("Cancelled");
+                        stage_->setText("Benchmark cancelled.");
                     } else if (result.completed) {
-                        stage_->setDetailText("Complete");
+                        stage_->setText("Benchmark complete.");
                         dlHistory_.push(static_cast<float>(result.downloadMbps));
                         ulHistory_.push(static_cast<float>(result.uploadMbps));
                         latencyHistory_.push(static_cast<float>(result.latencyMs));
@@ -288,10 +345,10 @@ class BenchmarkTab : public brls::Box {
                     }
                     ptrUnlock();
                 });
-            } catch (const std::exception& e) {
-                const std::string error = e.what();
-                brls::sync([this, error] {
-                    stage_->setDetailText("Failed: " + error);
+            } catch (const std::exception& error) {
+                const std::string message = error.what();
+                brls::sync([this, message] {
+                    stage_->setText("Benchmark failed: " + message);
                     ptrUnlock();
                 });
             }
@@ -305,67 +362,64 @@ class BenchmarkTab : public brls::Box {
     SparklineView* downloadGraph_{};
     SparklineView* uploadGraph_{};
     SparklineView* latencyGraph_{};
-    brls::DetailCell *stage_{}, *latency_{}, *minimumLatency_{}, *averageLatency_{}, *p95Latency_{}, *jitter_{}, *probes_{},
+    brls::Label* stage_{};
+    brls::DetailCell *latency_{}, *minimumLatency_{}, *averageLatency_{}, *p95Latency_{}, *jitter_{}, *probes_{},
         *download_{}, *upload_{}, *endpoint_{};
 };
 
-class BluetoothTab : public brls::Box {
+class BluetoothTab : public ScrollableTab {
   public:
     BluetoothTab() {
-        setPadding(20, 28, 20, 28);
-        title(this, "Bluetooth diagnostics");
-        subtitle(this, "Read-only BTM state plus an explicit, bounded passive BLE scan.");
-        available_ = cell(this, "BTM service");
-        state_ = cell(this, "State code");
-        connected_ = cell(this, "Connected devices");
-        known_ = cell(this, "Known devices");
-        diagnostic_ = cell(this, "Mode");
+        auto* page = content();
+        section(page, "Bluetooth", "READ ONLY", true);
+        paragraph(page, "Shows the current BTM service state and performs a short passive BLE discovery scan.");
 
-        auto* refresh = cell(this, "Refresh");
-        refresh->setDetailText("Press A");
-        refresh->registerClickAction([this](brls::View*) {
+        available_ = cell(page, "BTM service");
+        state_ = cell(page, "State code");
+        connected_ = cell(page, "Connected devices");
+        known_ = cell(page, "Known devices");
+        diagnostic_ = statusCard(page, "Bluetooth note", "Waiting for a service sample...");
+        action(page, "Refresh Bluetooth", [this](brls::View*) {
             refreshNow();
             return true;
         });
 
-        title(this, "Passive BLE discovery");
-        bleStatus_ = cell(this, "Scan state");
-        bleStatus_->setDetailText("Idle");
-        bleResults_ = new brls::Box();
-        addView(bleResults_);
-
-        auto* scan = cell(this, "Scan for 1.5 seconds");
-        scan->setDetailText("Press A");
-        scan->registerClickAction([this](brls::View*) {
+        section(page, "Passive BLE discovery", "1.5 SECONDS");
+        bleStatus_ = statusCard(page, "Scan status", "Ready to scan.");
+        action(page, "Start BLE scan", [this](brls::View*) {
             startPassiveScan();
             return true;
         });
+
+        bleResults_ = new brls::Box(brls::Axis::COLUMN);
+        bleResults_->setAlignItems(brls::AlignItems::STRETCH);
+        page->addView(bleResults_);
         refreshNow();
     }
 
   private:
     void refreshNow() {
-        const auto s = service_.snapshot();
-        available_->setDetailText(s.serviceAvailable ? "Available" : "Unavailable");
-        state_->setDetailText(s.state >= 0 ? std::to_string(s.state) : "-");
-        connected_->setDetailText(s.connectedDevices >= 0 ? std::to_string(s.connectedDevices) : "Unavailable");
-        known_->setDetailText(s.knownDevices >= 0 ? std::to_string(s.knownDevices) : "Unavailable");
-        diagnostic_->setDetailText(s.diagnostic);
+        const auto snapshot = service_.snapshot();
+        available_->setDetailText(snapshot.serviceAvailable ? "Available" : "Unavailable");
+        state_->setDetailText(snapshot.state >= 0 ? std::to_string(snapshot.state) : "Unavailable");
+        connected_->setDetailText(snapshot.connectedDevices >= 0 ? std::to_string(snapshot.connectedDevices) : "Unavailable");
+        known_->setDetailText(snapshot.knownDevices >= 0 ? std::to_string(snapshot.knownDevices) : "Unavailable");
+        diagnostic_->setText(snapshot.diagnostic.empty() ? "No additional diagnostic details." : snapshot.diagnostic);
     }
 
     void startPassiveScan() {
-        bleStatus_->setDetailText("Scanning...");
+        bleStatus_->setText("Scanning for nearby BLE advertisements...");
         ptrLock();
         brls::async([this] {
             const auto result = service_.passiveScan(1500);
             brls::sync([this, result] {
                 bleResults_->clearViews();
                 for (const auto& device : result.devices) {
-                    auto* entry = cell(bleResults_, device.name.empty() ? "BLE device" : device.name);
+                    auto* entry = cell(bleResults_, device.name.empty() ? "Unnamed BLE device" : device.name);
                     entry->setDetailText(device.address);
                 }
-                bleStatus_->setDetailText(result.diagnostic + " (" +
-                                          std::to_string(result.devices.size()) + " unique)");
+                bleStatus_->setText(result.diagnostic + " Found " +
+                                    std::to_string(result.devices.size()) + " unique device(s).");
                 ptrUnlock();
             });
         });
@@ -373,34 +427,32 @@ class BluetoothTab : public brls::Box {
 
     BluetoothService service_;
     brls::Box* bleResults_{};
-    brls::DetailCell *available_{}, *state_{}, *connected_{}, *known_{}, *diagnostic_{}, *bleStatus_{};
+    brls::Label *diagnostic_{}, *bleStatus_{};
+    brls::DetailCell *available_{}, *state_{}, *connected_{}, *known_{};
 };
 
-class AboutTab : public brls::Box {
+class AboutTab : public ScrollableTab {
   public:
     AboutTab() {
-        setPadding(20, 28, 20, 28);
-        title(this, std::string("switch-wifi ") + build::version);
-        subtitle(this, "Nintendo Switch network diagnostics built for modern Atmosphere/libnx homebrew.");
-        auto* purpose = cell(this, "Purpose");
-        purpose->setDetailText("Read-only Switch Wi-Fi/network benchmarking and diagnostics");
-        auto* stack = cell(this, "Stack");
-        stack->setDetailText("libnx + Borealis + libcurl + NanoVG");
-        auto* compatibility = cell(this, "Compatibility target");
-        compatibility->setDetailText(std::string("Atmosphere ") + build::atmosphereTarget +
-                                     " / HOS " + build::hosTarget +
-                                     "; released libnx " + build::libnxBaseline);
-        auto* privacy = cell(this, "Privacy");
-        privacy->setDetailText("Never displays saved Wi-Fi passphrases");
-        auto* noise = cell(this, "Noise metric");
-        noise->setDetailText("No fake RF noise floor; derived contention is labeled as a proxy");
+        auto* page = content();
+        section(page, std::string("switch-wifi ") + build::version, "SYSTEM TOOL", true);
+        paragraph(page, "A focused Nintendo Switch network diagnostics and benchmark utility.");
 
-        title(this, "Diagnostics export");
-        exportStatus_ = cell(this, "Report");
-        exportStatus_->setDetailText("Not exported");
-        auto* exportButton = cell(this, "Export text report");
-        exportButton->setDetailText("Press A");
-        exportButton->registerClickAction([this](brls::View*) {
+        statusCard(page, "Privacy first",
+                   "Saved Wi-Fi passwords are never requested, displayed, or written to diagnostics reports.");
+        statusCard(page, "Honest measurements",
+                   "Unsupported RF noise and SNR values stay unavailable instead of being estimated or fabricated.");
+
+        section(page, "Build information");
+        cell(page, "Application stack", "libnx / Borealis / libcurl");
+        cell(page, "Atmosphere target", build::atmosphereTarget);
+        cell(page, "Horizon OS target", build::hosTarget);
+        cell(page, "libnx baseline", build::libnxBaseline);
+
+        section(page, "Diagnostics report");
+        paragraph(page, "Exports connection and Bluetooth status to the SD card as plain text. Wi-Fi passwords are excluded.");
+        exportStatus_ = statusCard(page, "Export status", "No report has been exported yet.");
+        action(page, "Export report", [this](brls::View*) {
             exportReport();
             return true;
         });
@@ -417,11 +469,21 @@ class AboutTab : public brls::Box {
         BluetoothService bluetooth;
         const auto bt = bluetooth.snapshot();
 
-        const std::string home = brls::Application::getPlatform()->getHomeDirectory("switch-wifi");
-        const std::string path = home + "/diagnostics.txt";
+#ifdef __SWITCH__
+        if (R_FAILED(fsdevMountSdmc())) {
+            exportStatus_->setText("Could not mount the SD card.");
+            return;
+        }
+        const std::string path = "sdmc:/switch-wifi-diagnostics.txt";
+#else
+        const std::string path = "switch-wifi-diagnostics.txt";
+#endif
         std::ofstream report(path, std::ios::trunc);
         if (!report) {
-            exportStatus_->setDetailText("Failed to open " + path);
+            exportStatus_->setText("Could not open " + path);
+#ifdef __SWITCH__
+            fsdevUnmountDevice("sdmc");
+#endif
             return;
         }
 
@@ -457,17 +519,20 @@ class AboutTab : public brls::Box {
                << "privacy_note=Wi-Fi passphrases are intentionally excluded.\n"
                << "rf_note=No RF noise-floor or SNR value is fabricated.\n";
         report.close();
-        exportStatus_->setDetailText(path);
+#ifdef __SWITCH__
+        fsdevUnmountDevice("sdmc");
+#endif
+        exportStatus_->setText("Report saved to " + path);
     }
 
-    brls::DetailCell* exportStatus_{};
+    brls::Label* exportStatus_{};
 };
 
 } // namespace
 
 MainTabs::MainTabs() {
-    addTab("Dashboard", [] { return new DashboardTab(); });
-    addTab("Networks", [] { return new NetworksTab(); });
+    addTab("Connection", [] { return new DashboardTab(); });
+    addTab("Wi-Fi", [] { return new NetworksTab(); });
     addTab("Benchmark", [] { return new BenchmarkTab(); });
     addTab("Bluetooth", [] { return new BluetoothTab(); });
     addSeparator();
